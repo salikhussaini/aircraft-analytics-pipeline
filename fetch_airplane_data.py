@@ -18,15 +18,71 @@ import argparse
 import csv
 import time
 import schedule
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, List, Dict
 from datetime import datetime
+import sys
 
 try:
     import polars as pl
     POLARS_AVAILABLE = True
 except ImportError:
     POLARS_AVAILABLE = False
+
+
+def setup_logging():
+    """
+    Set up logging to both console and file.
+    Logs are saved to logs/ folder with datetime-based filenames.
+    """
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    
+    # Create logger
+    logger = logging.getLogger("airplane_fetcher")
+    logger.setLevel(logging.DEBUG)
+    
+    # Clear any existing handlers
+    logger.handlers.clear()
+    
+    # Log file path with datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    log_file = logs_dir / f"fetch_{timestamp}.log"
+    
+    # Console handler (INFO level - user-friendly)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_format)
+    try:
+        console_handler.stream.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass
+    
+    # File handler (DEBUG level - detailed)
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10_485_760,  # 10 MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_format)
+    
+    # Add handlers
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    
+    return logger
+
+
+logger = setup_logging()
 
 
 class AirplaneDataFetcher:
@@ -77,13 +133,14 @@ class AirplaneDataFetcher:
                 params['lomin'] = bounds[2]
                 params['lomax'] = bounds[3]
             
-            print(f"Fetching aircraft data from OpenSky Network...")
+            logger.info(f"Fetching aircraft data from OpenSky Network...")
             response = self.session.get(
                 self.STATES_ENDPOINT,
                 params=params,
                 timeout=self.timeout
             )
             response.raise_for_status()
+            logger.debug(f"API request successful, status code: {response.status_code}")
             
             data = response.json()
             
@@ -91,7 +148,7 @@ class AirplaneDataFetcher:
             states = data.get('states', [])
             
             if not states:
-                print("No aircraft currently visible.")
+                logger.warning("No aircraft currently visible.")
                 return []
             
             # Convert to list of dictionaries
@@ -125,10 +182,10 @@ class AirplaneDataFetcher:
             return aircraft_list
         
         except requests.exceptions.Timeout:
-            print(f"Error: Request timed out (>{self.timeout}s)")
+            logger.error(f"Request timed out (>{self.timeout}s)")
             return []
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching data: {e}")
+            logger.error(f"Error fetching data: {e}")
             return []
     
     def format_aircraft(self, aircraft: Dict) -> str:
@@ -153,22 +210,21 @@ class AirplaneDataFetcher:
     def print_aircraft_data(self, aircraft_list: List[Dict], verbose: bool = False):
         """Pretty print aircraft data"""
         if not aircraft_list:
-            print("No aircraft data to display.")
+            logger.info("No aircraft data to display.")
             return
         
-        print(f"\n{'='*150}")
-        print(f"Found {len(aircraft_list)} aircraft")
-        print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{self.RATE_LIMIT_WARNING}")
-        print(f"{'='*150}\n")
+        logger.info(f"\n{'='*150}")
+        logger.info(f"Found {len(aircraft_list)} aircraft")
+        logger.info(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"{self.RATE_LIMIT_WARNING}")
+        logger.info(f"{'='*150}\n")
         
         for i, aircraft in enumerate(aircraft_list, 1):
-            print(f"{i}. {self.format_aircraft(aircraft)}")
+            logger.info(f"{i}. {self.format_aircraft(aircraft)}")
             
             if verbose:
-                print(f"   ICAO24: {aircraft['icao24']}")
-                print(f"   Vertical Rate: {aircraft['vertical_rate']} m/s")
-                print()
+                logger.debug(f"   ICAO24: {aircraft['icao24']}")
+                logger.debug(f"   Vertical Rate: {aircraft['vertical_rate']} m/s")
     
     def save_to_csv(self, aircraft_list: List[Dict], filename: str = "aircraft_data.csv"):
         """Save aircraft data to CSV file with timestamp"""
@@ -218,10 +274,11 @@ class AirplaneDataFetcher:
                     }
                     writer.writerow(row)
             
-            print(f"✓ Saved {len(aircraft_list)} aircraft to {file_path}")
+            logger.info(f"✓ Saved {len(aircraft_list)} aircraft to {file_path}")
+            logger.debug(f"CSV save successful: {len(aircraft_list)} rows appended")
             
         except IOError as e:
-            print(f"✗ Error saving to {file_path}: {e}")
+            logger.error(f"Error saving to {file_path}: {e}")
     
     def save_to_json(self, aircraft_list: List[Dict], filename: str = "aircraft_data.json"):
         """Save aircraft data to JSON file with timestamp"""
@@ -240,10 +297,11 @@ class AirplaneDataFetcher:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2)
             
-            print(f"✓ Saved {len(aircraft_list)} aircraft to {file_path}")
+            logger.info(f"✓ Saved {len(aircraft_list)} aircraft to {file_path}")
+            logger.debug(f"JSON save successful: {len(aircraft_list)} aircraft to {file_path}")
             
         except IOError as e:
-            print(f"✗ Error saving to JSON: {e}")
+            logger.error(f"Error saving to JSON: {e}")
     
     def save_to_parquet(self, aircraft_list: List[Dict], filename: str = "aircraft_data.parquet"):
         """Save aircraft data to Parquet file using Polars with datetime in filename"""
@@ -251,7 +309,7 @@ class AirplaneDataFetcher:
             return
         
         if not POLARS_AVAILABLE:
-            print("✗ Polars not installed. Install with: pip install polars")
+            logger.error("Polars not installed. Install with: pip install polars")
             return
         
         try:
@@ -270,10 +328,11 @@ class AirplaneDataFetcher:
             # Write to parquet
             df.write_parquet(str(dated_filename))
             
-            print(f"✓ Saved {len(aircraft_list)} aircraft to {dated_filename}")
+            logger.info(f"✓ Saved {len(aircraft_list)} aircraft to {dated_filename}")
+            logger.debug(f"Parquet save successful: {len(df)} rows, {len(df.columns)} columns")
             
         except Exception as e:
-            print(f"✗ Error saving to parquet: {e}")
+            logger.error(f"Error saving to parquet: {e}")
 
 
 def fetch_and_save(
@@ -313,9 +372,10 @@ def run_scheduler(
     verbose: bool
 ):
     """Run fetch job on schedule (daemon mode)"""
-    print(f"Starting scheduler to fetch data every {interval} hour(s)...")
-    print(f"Output format: {output_format}")
-    print("Press Ctrl+C to stop\n")
+    logger.info(f"Starting scheduler to fetch data every {interval} hour(s)...")
+    logger.info(f"Output format: {output_format}")
+    logger.info("Press Ctrl+C to stop")
+    logger.debug(f"Scheduler params - interval: {interval}h, bounds: {bounds}, count: {count}")
     
     # Initial fetch
     fetch_and_save(fetcher, count, bounds, output_format, verbose)
@@ -330,13 +390,16 @@ def run_scheduler(
         verbose=verbose
     )
     
+    logger.info("Scheduler active, waiting for next scheduled run...")
+    
     # Keep running
     try:
         while True:
             schedule.run_pending()
             time.sleep(60)  # Check schedule every minute
     except KeyboardInterrupt:
-        print("\n✓ Scheduler stopped")
+        logger.warning("Scheduler interrupted by user (Ctrl+C)")
+        logger.info("Scheduler stopped")
 
 
 def main():
@@ -407,4 +470,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        logger.info("Starting airplane data fetcher...")
+        main()
+        logger.info("Fetcher script completed successfully")
+    except KeyboardInterrupt:
+        logger.warning("Fetcher interrupted by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
