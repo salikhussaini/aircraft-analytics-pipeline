@@ -287,37 +287,37 @@ crontab -e
 
 **Every 30 minutes (twice per hour):**
 ```crontab
-*/30 * * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+*/30 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every 15 minutes (4 times per hour):**
 ```crontab
-*/15 * * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+*/15 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every hour at the top of the hour:**
 ```crontab
-0 * * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+0 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every 2 hours:**
 ```crontab
-0 */2 * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+0 */2 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every day at 8 AM:**
 ```crontab
-0 8 * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+0 8 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every 6 hours to Parquet:**
 ```crontab
-0 0,6,12,18 * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output parquet
+0 0,6,12,18 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet
 ```
 
 **Every hour saving all formats (CSV + JSON + Parquet):**
 ```crontab
-0 * * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output all >> airplane.log 2>&1
+0 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output all >> logs/airplane.log 2>&1
 ```
 
 ### Crontab Format
@@ -337,30 +337,34 @@ crontab -e
 
 | Schedule | Crontab |
 |----------|---------|
-| Every hour | `0 * * * *` |
-| Every 30 minutes | `*/30 * * * *` |
-| Every 2 hours | `0 */2 * * *` |
-| Every 6 hours | `0 0,6,12,18 * * *` |
-| Every day at 9 AM | `0 9 * * *` |
-| Every Monday at 8 AM | `0 8 * * 1` |
-| Every 1st of month | `0 0 1 * *` |
-| Every 15 minutes | `*/15 * * * *` |
+| Every hour | `0 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every 30 minutes | `*/30 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every 2 hours | `0 */2 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every 6 hours | `0 0,6,12,18 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every day at 9 AM | `0 9 * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every Monday at 8 AM | `0 8 * * 1 cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every 1st of month | `0 0 1 * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
+| Every 15 minutes | `*/15 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output parquet` |
 
 ### Finding Python Path
 
 ```bash
+# Use venv Python (recommended)
+cd /path/to/airplane && ./venv/bin/python3
+
+# Or find system Python (if not using venv)
 which python3
 # Output: /usr/bin/python3
 ```
 
 ### Tips
 
-- Always use **full paths** in crontab (not `python3`, use `/usr/bin/python3`)
-- Always use **absolute paths** to your project directory
+- Always use **venv Python** in crontab: `./venv/bin/python3` (not system `python3`)
+- Always use **absolute paths** to your project directory (or relative `cd` first)
 - Use `cd /path/to/project &&` before running the script
-- Redirect output to log file:
+- Redirect output to log file (logs are auto-created):
   ```crontab
-  0 * * * * cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output csv >> airplane.log 2>&1
+  0 * * * * cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output csv >> logs/airplane.log 2>&1
   ```
 
 - View logs:
@@ -370,8 +374,73 @@ which python3
 
 - Test crontab entry before saving by running command manually:
   ```bash
-  cd /path/to/airplane && /usr/bin/python3 fetch_airplane_data.py --output csv
+  cd /path/to/airplane && ./venv/bin/python3 fetch_airplane_data.py --output csv
   ```
+
+## Logging
+
+Both scripts automatically log all activity to the `logs/` folder with datetime-stamped filenames:
+
+- **Fetch logs**: `logs/fetch_YYYY-MM-DD_HHMMSS.log` - Detailed logging of all data fetches
+- **Analytics logs**: `logs/analytics_YYYY-MM-DD_HHMMSS.log` - Detailed logging of analysis runs
+
+Each log file contains:
+- **INFO level**: Main execution flow, fetch results, save operations
+- **DEBUG level**: API status codes, data statistics, detailed operations
+- **ERROR/WARNING**: Errors and interruptions
+
+Log files are automatically rotated at 10MB and keep up to 5 backups. All logs use UTF-8 encoding for emoji support.
+
+### View recent logs:
+```bash
+# Most recent fetch log
+tail -f logs/fetch_*.log
+
+# Most recent analytics log
+tail -f logs/analytics_*.log
+
+# All logs from last hour
+find logs/ -mmin -60 -type f
+```
+
+## Analytics
+
+### Combine and analyze all data snapshots:
+```bash
+python analyze_airplane_data.py
+```
+
+This script:
+- Combines all parquet snapshots from `data/` folder
+- Handles schema differences across files
+- Deduplicates records
+- Generates statistics (unique aircraft, countries, on-ground vs in-flight)
+- Saves a silver dataset: `data/silver_dataset_YYYY-MM-DD_HHMMSS.parquet`
+
+Example output:
+```
+============================================================
+✈️  AIRPLANE DATA ANALYTICS
+============================================================
+📦 Found 42 snapshot files
+✅ Combined 42 snapshots
+   Total records: 1,234,567
+
+🧹 Cleaning dataset...
+   Removed duplicates: 12,345 rows
+   Clean records: 1,222,222
+
+📊 Dataset Statistics:
+   Unique aircraft (ICAO24): 45,678
+   Unique countries: 195
+   On ground: 8,900
+   In air: 1,213,322
+
+🌍 Top 10 Countries:
+   United States        450,234 aircraft
+   China                 89,234 aircraft
+   ...
+```
 
 ## Notes
 
@@ -380,7 +449,9 @@ which python3
 - Altitude may be `None` for some aircraft
 - Data updates every ~10-15 seconds on the API side
 - All files are saved to `data/` folder (created automatically)
+- All logs are saved to `logs/` folder (created automatically)
 - Parquet files are created with datetime stamps for easy tracking (default: twice per hour)
 - CSV file grows with each fetch; combine with other CSVs for historical analysis
 - Parquet format is space-efficient compared to CSV (built-in compression)
 - JSON file is replaced each fetch; use it for latest snapshot only
+- Use venv Python in crontab: `./venv/bin/python3` (not system `python3`)
