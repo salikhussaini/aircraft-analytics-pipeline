@@ -37,6 +37,7 @@ data/
 *.json
 
 # Logs
+logs/
 *.log
 airplane.log
 
